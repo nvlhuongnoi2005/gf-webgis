@@ -1,39 +1,35 @@
-# Kubernetes deployment
+# Triển khai WebGIS trên Kubernetes
 
-This folder deploys the application core into the `webgis` namespace:
+Thư mục này triển khai phần lõi ứng dụng vào namespace `webgis`:
 
-- `frontend`: static Vite application served by Nginx.
-- `controller`: Go authentication API and protected API gateway.
-- `auth-migrate`: database migration Job.
+- `frontend`: ứng dụng Vite tĩnh được Nginx phục vụ.
+- `controller`: API xác thực Go và API gateway được bảo vệ.
+- `auth-migrate`: Job migration cơ sở dữ liệu.
 
-The dedicated authentication database is rendered separately from
-`databases/auth/kustomization.yaml`. `argocd/webgis-auth-db.yaml` defines its independent
-Argo CD Application while the existing WebGIS Application continues to sync
-the `deployment/` core.
+Database xác thực riêng được render độc lập từ `databases/auth/kustomization.yaml`.
+`argocd/webgis-auth-db.yaml` khai báo Application Argo CD riêng, trong khi
+Application WebGIS hiện có vẫn đồng bộ phần lõi `deployment/`.
 
-The map workers are in `workers/workers.yaml` but intentionally are **not** part of
-`kustomization.yaml`. Tile Server is independently managed by the
-`webgis-tile-server` Argo CD Application, whose source is `workers/tile-server/`.
-Runtime tile data remains outside normal Argo CD sync; import or convert data
-into its PVC before serving it.
+Các worker bản đồ nằm trong `workers/workers.yaml` nhưng được chủ động tách khỏi
+`kustomization.yaml`. Tile Server do Application Argo CD `webgis-tile-server`
+quản lý độc lập, với source tại `workers/tile-server/`. Dữ liệu tile runtime nằm
+ngoài đồng bộ Argo CD thông thường; phải import hoặc chuyển đổi vào PVC trước khi phục vụ.
 
-## Layout
+## Bố cục
 
-- `core/`: frontend, Controller, migration Job, ingress and core NetworkPolicy;
-  rendered by the root `kustomization.yaml` together with `namespace.yaml`.
-- `databases/auth/`: isolated Auth PostgreSQL Kustomization.
-- `workers/`: map workers, worker storage and NetworkPolicy. Tile Server has
-  its own Kustomization at `workers/tile-server/`.
-- `operations/`: one-off data import manifests; do not add them to a normal
-  Kustomization.
-- `secrets/`: committed templates only. Generated keys and populated secrets
-  are ignored by Git.
-- `overlays/` and `argocd/`: local-cluster overrides and Argo CD Applications.
+- `core/`: frontend, Controller, Job migration, ingress và NetworkPolicy lõi;
+  được render bởi `kustomization.yaml` gốc cùng `namespace.yaml`.
+- `databases/auth/`: Kustomization PostgreSQL xác thực tách biệt.
+- `workers/`: worker bản đồ, storage worker và NetworkPolicy. Tile Server có
+  Kustomization riêng tại `workers/tile-server/`.
+- `operations/`: manifest import dữ liệu chạy một lần; không đưa vào Kustomization thông thường.
+- `secrets/`: chỉ template được commit. Khóa tạo ra và Secret có giá trị bị Git bỏ qua.
+- `overlays/` và `argocd/`: override cụm local và Application Argo CD.
 
-## 1. Build and publish images
+## 1. Xây dựng và đẩy image
 
-Replace `REGISTRY`, `TAG`, then set exactly the same image names in
-`controller.yaml` and `frontend.yaml`.
+Thay `REGISTRY`, `TAG`, sau đó đặt chính xác cùng tên image trong
+`controller.yaml` và `frontend.yaml`.
 
 ```powershell
 docker build -f be/Dockerfile -t REGISTRY/webgis/controller:TAG .
@@ -42,20 +38,18 @@ docker push REGISTRY/webgis/controller:TAG
 docker push REGISTRY/webgis/frontend:TAG
 ```
 
-The controller is written in Go. For local development, install Go 1.25 or
-newer, restart the terminal so `go` is in `PATH`, then run `npm start`.
+Controller được viết bằng Go. Khi phát triển local, cài Go 1.25 trở lên, mở lại
+terminal để `go` có trong `PATH`, rồi chạy `npm start`.
 
-For Docker Desktop's local Kubernetes, images already built locally can be used
-without `docker push` when the manifest contains the same tag and
-`imagePullPolicy: IfNotPresent`.
+Với Kubernetes local của Docker Desktop, có thể dùng image đã build tại máy mà
+không cần `docker push` khi manifest dùng đúng tag và `imagePullPolicy: IfNotPresent`.
 
-## 2. Create secrets outside Git
+## 2. Tạo Secret ngoài Git
 
-Generate an Ed25519 key pair and random values, then copy
-`secret.example.yaml` to `secret.yaml`, replace every placeholder, and do not
-commit it. `DATABASE_URL` must use the same password as `POSTGRES_PASSWORD`.
-Use URL-safe random values for the database password so no URL escaping is
-needed in `DATABASE_URL`.
+Tạo cặp khóa Ed25519 và các giá trị ngẫu nhiên, sau đó sao chép
+`secret.example.yaml` thành `secret.yaml`, thay mọi placeholder và không commit
+tệp này. `DATABASE_URL` phải dùng đúng mật khẩu của `POSTGRES_PASSWORD`.
+Dùng mật khẩu an toàn với URL để không cần escape trong `DATABASE_URL`.
 
 ```powershell
 go run ./be/cmd/keygen -out-dir deployment/secrets/.generated
@@ -64,22 +58,20 @@ kubectl apply -f deployment/namespace.yaml
 kubectl apply -f deployment/secrets/secret.yaml
 ```
 
-The controller requires `AUTH_JWT_PRIVATE_KEY`,
-`AUTH_JWT_PUBLIC_KEY`, and `AUTH_REFRESH_TOKEN_PEPPER`; it deliberately will
-not start with ephemeral JWT keys in production.
+Controller cần `AUTH_JWT_PRIVATE_KEY`, `AUTH_JWT_PUBLIC_KEY` và
+`AUTH_REFRESH_TOKEN_PEPPER`; ở production, service chủ động không khởi động với
+JWT key tạm thời.
 
-## 3. Deploy the core
+## 3. Triển khai phần lõi
 
-For GitOps deployments, keep the existing WebGIS Application pointed at this
-directory and apply `kubectl apply -k deployment/argocd` once to create the
-independent database and Tile Server Applications. The migration Job waits for
-`auth-postgres`, runs the SQL migrations, then the sync wave updates the
-controller. The CI workflow publishes the controller image (which contains the
-SQL migrations) and updates both controller and migration Job image tags when
-backend files change.
+Với GitOps, giữ Application WebGIS hiện có trỏ tới thư mục này và chạy một lần
+`kubectl apply -k deployment/argocd` để tạo Application database và Tile Server
+độc lập. Job migration chờ `auth-postgres`, chạy SQL migration, rồi sync wave
+cập nhật Controller. CI publish Controller image (có SQL migration) và cập nhật
+tag image của Controller lẫn Job migration khi backend thay đổi.
 
-For a manual first-time deployment, apply the resources and wait for Postgres
-before rerunning the migration Job:
+Với lần triển khai thủ công đầu tiên, apply tài nguyên và chờ Postgres trước khi
+chạy lại Job migration:
 
 ```powershell
 kubectl apply -f deployment/namespace.yaml
@@ -93,21 +85,21 @@ kubectl -n webgis rollout status deployment/controller
 kubectl -n webgis rollout status deployment/frontend
 ```
 
-The migration Job is included in the core `kustomization.yaml` and has an init
-container that waits up to ten minutes for the independently managed database.
+Job migration nằm trong `kustomization.yaml` lõi và có init container chờ tối đa
+mười phút cho database được quản lý độc lập.
 
-## 4. Ingress and local access
+## 4. Ingress và truy cập local
 
-Install the pinned ingress-nginx controller once per Kubernetes cluster:
+Cài ingress-nginx controller đã ghim phiên bản một lần cho mỗi Kubernetes cluster:
 
 ```powershell
 kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.15.1/deploy/static/provider/cloud/deploy.yaml
 kubectl -n ingress-nginx rollout status deployment/ingress-nginx-controller --timeout=300s
 ```
 
-For Docker Desktop local testing, apply the normal manifests first, then the
-local overlay. It routes `http://webgis.localhost` through ingress-nginx and
-disables secure cookies only for this HTTP-only local environment.
+Khi kiểm thử local bằng Docker Desktop, apply manifest thông thường trước, rồi
+apply local overlay. Overlay định tuyến `http://webgis.localhost` qua ingress-nginx
+và chỉ tắt secure cookie cho môi trường HTTP local này.
 
 ```powershell
 kubectl apply -k deployment
@@ -116,43 +108,41 @@ kubectl -n webgis rollout restart deployment/controller
 kubectl -n webgis rollout status deployment/controller
 ```
 
-Open `http://webgis.localhost`. Modern browsers resolve `*.localhost` to the
-local machine. If yours does not, add `127.0.0.1 webgis.localhost` to the
-Windows hosts file. No port-forward is required while ingress-nginx is running.
+Mở `http://webgis.localhost`. Trình duyệt hiện đại phân giải `*.localhost` về
+máy local. Nếu trình duyệt không làm vậy, thêm `127.0.0.1 webgis.localhost` vào
+hosts file Windows. Không cần port-forward khi ingress-nginx đang chạy.
 
-For production, retain the base `ingress.yaml`, replace
-`webgis.example.com` with the real domain, configure TLS/cert-manager, set
-`APP_ORIGINS` to its HTTPS origin, and keep `AUTH_SECURE_COOKIES` set to `true`.
+Ở production, giữ `ingress.yaml` base, thay `webgis.example.com` bằng domain thật,
+cấu hình TLS/cert-manager, đặt `APP_ORIGINS` thành HTTPS origin và giữ
+`AUTH_SECURE_COOKIES=true`.
 
-For a local smoke test without Ingress:
+Để smoke test local không dùng Ingress:
 
 ```powershell
 kubectl -n webgis port-forward service/frontend 8088:80
 kubectl -n webgis port-forward service/controller 3001:3001
 ```
 
-Open `http://localhost:8088`. The Frontend Nginx proxies `/auth` and `/api`
-to the in-cluster Controller, so map catalog and tile requests keep the same
-path as production. Directly exposing Controller or workers via
-`LoadBalancer`/`NodePort` is not the intended production design.
+Mở `http://localhost:8088`. Frontend Nginx proxy `/auth` và `/api` tới Controller
+trong cluster, do đó catalog bản đồ và tile giữ cùng đường dẫn như production.
+Không nên public trực tiếp Controller hoặc worker qua `LoadBalancer`/`NodePort` ở production.
 
-## 5. Migrate map workers from Docker
+## 5. Chuyển worker bản đồ từ Docker
 
-The current Docker data was measured as approximately 393 MB for Tile Server,
-2.9 GB for the shared Valhalla/Nominatim map directory, and 10 GB for the
-Nominatim PostGIS database. The manifests use 5 Gi, 10 Gi, and 30 Gi PVCs
-respectively. They are intentionally outside `kustomization.yaml`.
+Dữ liệu Docker hiện tại đo được khoảng 393 MB cho Tile Server, 2.9 GB cho thư
+mục bản đồ dùng chung của Valhalla/Nominatim và 10 GB cho Nominatim PostGIS.
+Manifest lần lượt dùng PVC 5 Gi, 10 Gi và 30 Gi; chúng được chủ động tách khỏi
+`kustomization.yaml`.
 
-Build and publish the locally-built Nominatim image with the same release tag
-as the controller and frontend:
+Xây dựng và đẩy image Nominatim local với cùng release tag của Controller và frontend:
 
 ```powershell
 docker build -f ../Nominatim/Dockerfile -t ghcr.io/nvlhuongnoi2005/webgis/nominatim:26.9 ../Nominatim
 docker push ghcr.io/nvlhuongnoi2005/webgis/nominatim:26.9
 ```
 
-Create a non-committed database secret. `POSTGRES_PASSWORD` and the password in
-`NOMINATIM_DATABASE_DSN` must be exactly the same value.
+Tạo Secret database không commit. `POSTGRES_PASSWORD` và mật khẩu trong
+`NOMINATIM_DATABASE_DSN` phải hoàn toàn giống nhau.
 
 ```powershell
 $bytes = New-Object byte[] 32
@@ -168,7 +158,7 @@ kubectl -n webgis create secret generic nominatim-db-credentials `
   --dry-run=client -o yaml | kubectl apply -f -
 ```
 
-Create the PVCs and target Nominatim database, then wait for it:
+Tạo PVC và database Nominatim đích, sau đó chờ database sẵn sàng:
 
 ```powershell
 kubectl -n webgis apply -f deployment/workers/worker-storage.yaml
@@ -180,9 +170,8 @@ kubectl -n webgis apply -f deployment/workers/tile-server/operations/importer.ya
 kubectl -n webgis wait --for=condition=Ready pod/import-tile-data pod/import-map-data pod/import-nominatim-project --timeout=180s
 ```
 
-The following transfers stream from the currently running Docker containers to
-the PVCs; they do not create a second local copy. Keep the source containers
-running until each command succeeds.
+Các lệnh sau stream dữ liệu từ Docker container đang chạy vào PVC; chúng không
+tạo thêm một bản sao local. Giữ container nguồn chạy cho đến khi từng lệnh thành công.
 
 ```powershell
 cmd.exe /d /s /c "docker cp tile-server:/tile-server/data - | kubectl -n webgis exec -i import-tile-data -- tar -C /target --strip-components=1 -xf -"
@@ -191,12 +180,12 @@ cmd.exe /d /s /c "docker cp nominatim-nominatim-1:/nominatim-project - | kubectl
 cmd.exe /d /s /c "docker exec nominatim-db-1 pg_dump -U nominatim -Fc nominatim | kubectl -n webgis exec -i nominatim-db-0 -- pg_restore -U nominatim -d nominatim --no-owner"
 ```
 
-Verify the imported database before starting its API. Then remove the temporary
-importer pods and launch the three workers with private network policies:
+Xác minh database đã import trước khi chạy API. Sau đó xóa pod importer tạm thời
+và khởi động ba worker cùng NetworkPolicy private:
 
 ```powershell
 kubectl -n webgis exec nominatim-db-0 -- psql -U nominatim -d nominatim -c "SELECT count(*) FROM placex;"
-# Only needed when the old source database was also used for WebGIS auth.
+# Chỉ cần khi database nguồn cũ cũng từng được dùng cho xác thực WebGIS.
 kubectl -n webgis exec nominatim-db-0 -- psql -U nominatim -d nominatim -c "DROP TABLE IF EXISTS auth_event_checkpoints, auth_events, refresh_token_history, user_quotas, sessions, users; DROP FUNCTION IF EXISTS set_auth_updated_at();"
 kubectl -n webgis delete -f deployment/operations/worker-importer.yaml
 kubectl -n webgis delete -f deployment/workers/tile-server/operations/importer.yaml
@@ -209,12 +198,12 @@ kubectl -n webgis rollout status deployment/valhalla --timeout=600s
 kubectl -n webgis rollout status deployment/nominatim --timeout=300s
 ```
 
-All worker Services are `ClusterIP`; clients cannot call them directly. The
-Controller proxies map tiles, public Nominatim search requests, and authenticated routing requests to Valhalla at
-`valhalla:8002`. Tile and Nominatim need their own authenticated controller
-routes before they are exposed from the frontend in production.
+Mọi Service worker đều là `ClusterIP`; client không thể gọi trực tiếp. Controller
+proxy tile bản đồ, request tìm kiếm Nominatim công khai và request định tuyến đã
+xác thực tới Valhalla tại `valhalla:8002`. Tile và Nominatim cần route Controller
+có xác thực riêng trước khi được frontend public ở production.
 
-## Operations
+## Vận hành
 
 ```powershell
 kubectl -n webgis get pods,svc,pvc,ingress
@@ -223,14 +212,14 @@ kubectl -n webgis logs job/auth-migrate
 kubectl -n webgis describe pod -l app.kubernetes.io/name=controller
 ```
 
-The auth database is deliberately separate from Nominatim's database. It avoids
-coupling account data to an imported geocoding dataset and lets the controller
-reach it through the private `auth-postgres` ClusterIP service.
+Database auth được chủ động tách khỏi database Nominatim. Điều này tránh gắn dữ
+liệu tài khoản với dataset geocoding import và cho Controller truy cập qua
+Service `auth-postgres` ClusterIP riêng tư.
 
-## Spatial-search POI sync
+## Đồng bộ POI cho tìm kiếm không gian
 
-After the `auth-migrate` Job has completed and the Nominatim database is ready,
-copy the supported POI categories into the application database:
+Sau khi Job `auth-migrate` hoàn tất và database Nominatim sẵn sàng, sao chép các
+nhóm POI được hỗ trợ vào database ứng dụng:
 
 ```powershell
 kubectl -n webgis delete job poi-sync --ignore-not-found
@@ -238,6 +227,6 @@ kubectl -n webgis apply -f deployment/workers/poi-sync.yaml
 kubectl -n webgis wait --for=condition=complete job/poi-sync --timeout=600s
 ```
 
-The Job reads Nominatim through the private `nominatim-db` service and writes
-the product-owned `search_pois` table in `auth-postgres`. Re-run it after each
-Nominatim/OSM data import.
+Job đọc Nominatim qua Service riêng tư `nominatim-db` và ghi vào bảng
+`search_pois` do sản phẩm sở hữu trong `auth-postgres`. Chạy lại sau mỗi lần
+import dữ liệu Nominatim/OSM.

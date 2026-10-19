@@ -487,7 +487,7 @@ Sau đó đưa `AUTH_JWT_PRIVATE_KEY`, `AUTH_JWT_PUBLIC_KEY` và `AUTH_REFRESH_T
 
 ## Docker và Kubernetes
 
-Build hai image ứng dụng từ thư mục gốc:
+Xây dựng hai image ứng dụng từ thư mục gốc:
 
 ```powershell
 docker build -f be/Dockerfile -t REGISTRY/webgis/controller:TAG .
