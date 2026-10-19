@@ -1465,10 +1465,12 @@ func (server *Server) tileProxy(response http.ResponseWriter, request *http.Requ
 	}
 }
 
-// geoDataProxy keeps GeoData private while preserving its authorization
-// boundary. The Controller validates map:read and then forwards the original
-// WebGIS JWT; GeoData resolves the caller's user/organization grants before it
-// reveals a catalog entry, style, sprite, TileJSON, or tile.
+// geoDataProxy keeps GeoData private while preserving its release visibility
+// boundary. Authenticated callers must have map:read and their JWT is forwarded
+// so GeoData can resolve user/organization grants. Anonymous callers are
+// forwarded without a JWT: GeoData exposes only public releases to them and
+// rejects restricted releases itself. This lets an unauthenticated share link
+// render a public basemap without opening restricted data.
 func (server *Server) geoDataProxy(response http.ResponseWriter, request *http.Request, workerPath string) {
 	if request.Method != http.MethodGet && request.Method != http.MethodHead {
 		clientError(response, http.StatusMethodNotAllowed, "Method not allowed")
@@ -1487,8 +1489,10 @@ func (server *Server) geoDataProxy(response http.ResponseWriter, request *http.R
 			return
 		}
 	}
-	if _, ok := server.authenticate(response, request, "map:read"); !ok {
-		return
+	if strings.TrimSpace(request.Header.Get("Authorization")) != "" {
+		if _, ok := server.authenticate(response, request, "map:read"); !ok {
+			return
+		}
 	}
 	target := server.config.GeoDataURL + workerPath
 	if request.URL.RawQuery != "" {

@@ -135,6 +135,30 @@ func TestTileProxyForwardsOnlySafeTilePaths(t *testing.T) {
 	}
 }
 
+func TestGeoDataProxyAllowsAnonymousAccessToPublicReleases(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v1/catalog" {
+			t.Fatalf("unexpected GeoData path: %s", request.URL.Path)
+		}
+		if request.Header.Get("Authorization") != "" {
+			t.Fatal("anonymous request unexpectedly included an authorization header")
+		}
+		response.Header().Set("Content-Type", "application/json")
+		_, _ = response.Write([]byte(`{"items":[{"id":"public-map"}]}`))
+	}))
+	defer upstream.Close()
+
+	server := &Server{config: Config{GeoDataURL: upstream.URL}, workerClient: upstream.Client()}
+	request := httptest.NewRequest(http.MethodGet, "/api/geodata/catalog", nil)
+	response := httptest.NewRecorder()
+
+	server.geoDataProxy(response, request, "/v1/catalog")
+
+	if response.Code != http.StatusOK || response.Body.String() != `{"items":[{"id":"public-map"}]}` {
+		t.Fatalf("unexpected GeoData response: status=%d body=%q", response.Code, response.Body.String())
+	}
+}
+
 func TestValidSharedMapState(t *testing.T) {
 	valid := sharedMapState{
 		BaseMapID:  "asia_full",

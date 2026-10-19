@@ -132,8 +132,8 @@ function normalizeCatalogItem(item: unknown, index: number): TileServerBaseMap {
 }
 
 export async function fetchTileServerBaseMaps(signal?: AbortSignal): Promise<TileServerBaseMap[]> {
-  // GeoData filters this catalog by the user and organisation claims carried
-  // by authFetch. Restricted releases never reach this browser response.
+  // GeoData filters this catalog by the user and organisation claims when
+  // present. An anonymous share link receives public releases only.
   const response = await authFetch(GEODATA_CATALOG_URL, { signal, cache: "no-store" });
 
   if (response.ok && response.headers.get("content-type")?.includes("json")) {
@@ -155,7 +155,8 @@ export async function fetchTileServerBaseMaps(signal?: AbortSignal): Promise<Til
 
 export function resolveTileServerAssetUrl(tilePath: string) {
   // MapLibre invokes this for styles, TileJSON, sprites, and tiles. The
-  // GeoData API paths stay behind the authenticated Controller proxy.
+  // GeoData API paths stay behind the Controller proxy, which forwards
+  // anonymous requests only for public releases.
   if (tilePath === GEODATA_URL || tilePath.startsWith(`${GEODATA_URL}/`)) {
     return tilePath;
   }
