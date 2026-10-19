@@ -15,6 +15,7 @@ import { useTranslation } from "react-i18next";
 import {
   fetchTileServerBaseMaps,
   getMapStyle,
+  normalizeMapStyleAssetUrls,
   resolveTileServerAssetUrl,
 } from "../../tools/map/MapStyleTool";
 import { AppNavigationContext } from "../../appNavigation";
@@ -69,13 +70,14 @@ export default function SharedGeoJSONPage({
     if (!sharedMap || !mapContainer.current) return;
     const map = new maplibregl.Map({
       container: mapContainer.current,
-      style: sharedMap.style,
+      style: getMapStyle(),
       center: [0, 0],
       zoom: 2,
       transformRequest: (url) => ({ url: resolveTileServerAssetUrl(url) }),
     });
     map.addControl(new maplibregl.NavigationControl(), "top-right");
-    map.once("load", () => {
+
+    const addSharedGeoJSON = () => {
       map.addSource("shared-geojson", { type: "geojson", data: sharedMap.geoJSON as never });
       map.addLayer({
         id: "shared-polygons",
@@ -111,6 +113,14 @@ export default function SharedGeoJSONPage({
       });
       const bounds = getCoordinateBounds(sharedMap.geoJSON);
       if (bounds) map.fitBounds(bounds, { padding: 56, maxZoom: 15, duration: 0 });
+    };
+
+    map.once("load", () => {
+      map.once("style.load", addSharedGeoJSON);
+      map.setStyle(sharedMap.style, {
+        diff: false,
+        transformStyle: (_previousStyle, nextStyle) => normalizeMapStyleAssetUrls(nextStyle),
+      });
     });
     return () => map.remove();
   }, [sharedMap]);

@@ -184,6 +184,53 @@ export function resolveTileServerAssetUrl(tilePath: string) {
   return tilePath;
 }
 
+type MutableStyleAssets = {
+  sprite?: string | Array<{ id: string; url: string }>;
+  glyphs?: string;
+  sources?: Record<string, { url?: string; tiles?: string[] }>;
+};
+
+function absoluteStyleAssetUrl(url: string, origin: string) {
+  try {
+    return new URL(resolveTileServerAssetUrl(url), origin).href;
+  } catch {
+    return url;
+  }
+}
+
+// MapLibre validates root sprite and glyph URLs before transformRequest runs.
+// Keep server styles portable by converting their relative asset paths to
+// absolute Controller-proxy URLs immediately after the style is fetched.
+export function normalizeMapStyleAssetUrls(
+  style: StyleSpecification,
+  origin = window.location.origin
+): StyleSpecification {
+  const normalized = JSON.parse(JSON.stringify(style)) as StyleSpecification;
+  const assets = normalized as unknown as MutableStyleAssets;
+
+  if (typeof assets.sprite === "string") {
+    assets.sprite = absoluteStyleAssetUrl(assets.sprite, origin);
+  } else if (Array.isArray(assets.sprite)) {
+    assets.sprite = assets.sprite.map((sprite) => ({
+      ...sprite,
+      url: absoluteStyleAssetUrl(sprite.url, origin),
+    }));
+  }
+  if (typeof assets.glyphs === "string") {
+    assets.glyphs = absoluteStyleAssetUrl(assets.glyphs, origin);
+  }
+  for (const source of Object.values(assets.sources ?? {})) {
+    if (typeof source.url === "string") {
+      source.url = absoluteStyleAssetUrl(source.url, origin);
+    }
+    if (Array.isArray(source.tiles)) {
+      source.tiles = source.tiles.map((tile) => absoluteStyleAssetUrl(tile, origin));
+    }
+  }
+
+  return normalized;
+}
+
 export function getTileServerPreviewUrl(baseMap: TileServerBaseMap) {
   if (baseMap.previewPath) {
     return resolveTileServerAssetUrl(baseMap.previewPath);

@@ -4,7 +4,11 @@ import { useTranslation } from "react-i18next";
 import type { MutableRefObject } from "react";
 import type { Map } from "maplibre-gl";
 
-import { fetchTileServerBaseMaps, getMapStyle } from "../tools/map/MapStyleTool";
+import {
+  fetchTileServerBaseMaps,
+  getMapStyle,
+  normalizeMapStyleAssetUrls,
+} from "../tools/map/MapStyleTool";
 import type { TileServerBaseMap } from "../tools/map/MapStyleTool";
 
 export type TileServerCatalogStatus = "idle" | "loading" | "ready" | "error";
@@ -21,9 +25,7 @@ export function useBaseMapStyle(map: MutableRefObject<Map | null>) {
   const [mapStyleVersion, setMapStyleVersion] = useState(0);
 
   const changeMapStyle = useCallback(
-    (
-      nextTileServerBaseMap: TileServerBaseMap | null = tileServerBaseMap
-    ) => {
+    (nextTileServerBaseMap: TileServerBaseMap | null = tileServerBaseMap) => {
       if (!map.current) {
         return;
       }
@@ -36,7 +38,10 @@ export function useBaseMapStyle(map: MutableRefObject<Map | null>) {
         getMapStyle(nextTileServerBaseMap ?? undefined),
         // Rebuild the style so newly selected vector sources/layers are not
         // lost by the style diff when switching from basemap-only mode.
-        { diff: false }
+        {
+          diff: false,
+          transformStyle: (_previousStyle, nextStyle) => normalizeMapStyleAssetUrls(nextStyle),
+        }
       );
     },
     [map, tileServerBaseMap]
@@ -50,9 +55,7 @@ export function useBaseMapStyle(map: MutableRefObject<Map | null>) {
       const datasets = await fetchTileServerBaseMaps();
       const permittedIDs = new Set(datasets.map((dataset) => dataset.id));
       const nextBaseMap =
-        tileServerBaseMap && permittedIDs.has(tileServerBaseMap.id)
-          ? tileServerBaseMap
-          : null;
+        tileServerBaseMap && permittedIDs.has(tileServerBaseMap.id) ? tileServerBaseMap : null;
 
       setTileServerBaseMaps(datasets);
 
